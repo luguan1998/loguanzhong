@@ -105,9 +105,9 @@ function parseTranscript(path) {
   const messages = parseTranscript(transcriptPath);
   if (messages.length === 0) { process.exit(0); }
 
-  // Check if luo skill was invoked in the last 50 assistant messages
-  const recentAssistant = messages.filter((m) => m.role === 'assistant').slice(-50);
-  const luoUsed = recentAssistant.some((msg) => {
+  // Check if luo skill was invoked anywhere in session
+  const luoUsed = messages.some((msg) => {
+    if (msg.role !== 'assistant') return false;
     const content = msg.message?.content;
     if (!Array.isArray(content)) return false;
     return content.some((block) =>
@@ -119,26 +119,30 @@ function parseTranscript(path) {
 
   if (!luoUsed) { process.exit(0); }
 
-  // Check if context involves a bug / error (六阵 only required for bugs)
+  // Bug context: check only the LAST user message (not pooled across turns)
   const userMessages = messages.filter((m) => m.role === 'user');
-  const recentUserText = userMessages.slice(-10).flatMap((msg) => {
-    const content = msg.message?.content;
-    if (!Array.isArray(content)) return [];
-    return content.filter((b) => b.type === 'text').map((b) => b.text);
-  }).join(' ');
+  const lastUserMsg = userMessages.at(-1);
+  const lastUserText = (() => {
+    if (!lastUserMsg) return '';
+    const content = lastUserMsg.message?.content;
+    if (!Array.isArray(content)) return '';
+    return content.filter((b) => b.type === 'text').map((b) => b.text).join(' ');
+  })();
 
   const bugKeywords = /bug|报错|错误|异常|崩溃|crash|error|exception|故障|不工作|坏了|出错|不对|修复|修[复改]|debug|trace|stack|堆栈/iu;
-  const isBugContext = bugKeywords.test(recentUserText);
+  const isBugContext = bugKeywords.test(lastUserText);
 
-  // Collect ALL assistant text blocks from luo-invoked session (not just last)
-  const assistantMessages = messages.filter((m) => m.role === 'assistant').slice(-100);
-  const allText = assistantMessages.flatMap((msg) => {
-    const content = msg.message?.content;
+  // Only check the LAST assistant message — each turn stands on its own
+  const assistantMessages = messages.filter((m) => m.role === 'assistant');
+  const lastAssistant = assistantMessages.at(-1);
+  const lastAssistantText = (() => {
+    if (!lastAssistant) return '';
+    const content = lastAssistant.message?.content;
     if (!Array.isArray(content)) return [];
     return content.filter((b) => b.type === 'text').map((b) => b.text);
-  }).join('\n');
+  })();
 
-  const normalizedText = normalize(allText);
+  const normalizedText = normalize(lastAssistantText.join(' '));
 
   // Count how many formations are present
   const presentZhen = [];
